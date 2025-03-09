@@ -71,48 +71,46 @@ class TransformerBlock(nn.Module):
         
         return x, attn_weights
 
-class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, n_embd, n_head):
-        super(MultiHeadSelfAttention, self).__init__()
+# class MultiHeadSelfAttention(nn.Module):
+#     def __init__(self, n_embd, n_head):
+#         super(MultiHeadSelfAttention, self).__init__()
         
-        # Ensure n_embd is divisible by n_head
-        assert n_embd % n_head == 0
-        self.d_k = n_embd // n_head  # Dimension per head
-        self.n_head = n_head
+#         # Ensure n_embd is divisible by n_head
+#         assert n_embd % n_head == 0
+#         self.d_k = n_embd // n_head  # Dimension per head
+#         self.n_head = n_head
         
-        # Define linear layers for query, key, and value projections
-        self.query = nn.Linear(n_embd, n_embd)
-        self.key = nn.Linear(n_embd, n_embd)
-        self.value = nn.Linear(n_embd, n_embd)
+#         # Define linear layers for query, key, and value projections
+#         self.query = nn.Linear(n_embd, n_embd)
+#         self.key = nn.Linear(n_embd, n_embd)
+#         self.value = nn.Linear(n_embd, n_embd)
         
-        # Output projection
-        self.fc_out = nn.Linear(n_embd, n_embd)
+#         # Output projection
+#         self.fc_out = nn.Linear(n_embd, n_embd)
 
-    def forward(self, x, mask=None):
-        b, t, d = x.size()
+#     def forward(self, x, mask=None):
+#         b, t, d = x.size()
         
-        # Linear transformations and split into heads
-        q = self.query(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
-        k = self.key(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
-        v = self.value(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
+#         # Linear transformations and split into heads
+#         q = self.query(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
+#         k = self.key(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
+#         v = self.value(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
         
-        # Scaled dot-product attention
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+#         # Scaled dot-product attention
+#         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
         
-        # Apply mask for decoder to prevent attending to future tokens
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, float('-inf'))
+#         # Apply mask for decoder to prevent attending to future tokens
+#         if mask is not None:
+#             scores = scores.masked_fill(mask == 0, float('-inf'))
 
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_output = torch.matmul(attn_weights, v)
+#         attn_weights = F.softmax(scores, dim=-1)
+#         attn_output = torch.matmul(attn_weights, v)
         
-        # Concatenate heads and apply final linear transformation
-        attn_output = attn_output.transpose(1, 2).contiguous().view(b, t, d)
-        output = self.fc_out(attn_output)
+#         # Concatenate heads and apply final linear transformation
+#         attn_output = attn_output.transpose(1, 2).contiguous().view(b, t, d)
+#         output = self.fc_out(attn_output)
         
-        return output, attn_weights.mean(dim=1)
-   
-
+#         return output, attn_weights.mean(dim=1)
 
 class TransformerDecoder(nn.Module):
     def __init__(self, vocab_size, n_embd, n_head, n_layer, block_size):
@@ -184,3 +182,56 @@ class TransformerDecoderBlock(nn.Module):
         x = self.layer_norm2(x + ff_output)
         
         return x, attn_weights
+
+#Alibi
+print("Tranformer using Alibi")
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, n_embd, n_head):
+        super(MultiHeadSelfAttention, self).__init__()
+        
+        # Ensure n_embd is divisible by n_head
+        assert n_embd % n_head == 0
+        self.d_k = n_embd // n_head  # Dimension per head
+        self.n_head = n_head
+        
+        # Define linear layers for query, key, and value projections
+        self.query = nn.Linear(n_embd, n_embd)
+        self.key = nn.Linear(n_embd, n_embd)
+        self.value = nn.Linear(n_embd, n_embd)
+        
+        # Output projection
+        self.fc_out = nn.Linear(n_embd, n_embd)
+
+    def alibi_bias(self, t, device):
+        # Generate a bias tensor with linear bias based on distance
+        bias = torch.arange(t, device=device).view(1, 1, -1) - torch.arange(t, device=device).view(1, -1, 1)
+        bias = -bias.clamp(min=0).float()  # Negative bias, increasing with distance
+        return bias
+
+    def forward(self, x, mask=None):
+        b, t, d = x.size()
+        
+        # Linear transformations and split into heads
+        q = self.query(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)  # Shape: (b, n_head, t, d_k)
+        k = self.key(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
+        v = self.value(x).view(b, t, self.n_head, self.d_k).transpose(1, 2)
+        
+        # Scaled dot-product attention
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)  # Shape: (b, n_head, t, t)
+        
+        # Add AliBi bias
+        alibi = self.alibi_bias(t, x.device)  # Shape: (1, 1, t, t)
+        scores += alibi
+
+        # Apply mask if provided (useful for causal masking in decoders)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, float('-inf'))
+
+        attn_weights = F.softmax(scores, dim=-1)  # Shape: (b, n_head, t, t)
+        attn_output = torch.matmul(attn_weights, v)  # Shape: (b, n_head, t, d_k)
+        
+        # Concatenate heads and apply final linear transformation
+        attn_output = attn_output.transpose(1, 2).contiguous().view(b, t, d)  
+        output = self.fc_out(attn_output)  
+        
+        return output, attn_weights.mean(dim=1)

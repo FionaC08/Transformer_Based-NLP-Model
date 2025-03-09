@@ -5,13 +5,11 @@ import os
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-
 from tokenizer import SimpleTokenizer
 from dataset import SpeechesClassificationDataset, LanguageModelingDataset
 from transformer import TransformerEncoder, TransformerDecoder
-
-
 from utilities import Utilities
+import matplotlib.pyplot as plt
 
 seed = 42
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -125,6 +123,7 @@ def main():
     test_CLS_dataset = SpeechesClassificationDataset(tokenizer, "speechesdataset/test_CLS.tsv")
     test_CLS_loader = DataLoader(test_CLS_dataset, batch_size=batch_size, collate_fn=collate_batch, shuffle=False)
 
+    print("=========================Part 1===============================")
     # Encoder
     vocab_size = tokenizer.vocab_size
     encoder = TransformerEncoder(vocab_size, n_embd, n_head, n_layer, block_size).to(device)
@@ -137,16 +136,17 @@ def main():
     optimizer = optim.Adam(list(encoder.parameters()) + list(classifier.parameters()), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
-    # Sanity checking before training
-    # print("Sanity check before training")
-    # print("========================================================")
-    # with torch.no_grad():  # Disable gradient tracking
-    #     batch_iter = iter(train_LM_loader)
-    #     X, _ = next(batch_iter)
-    #     sentence_1 = "It's time to put an end to micromanagement of foreign and security assistance programs—micromanagement that humiliates our friends and allies and hamstrings our diplomacy."
-    #     utils = Utilities(tokenizer, encoder)
-    #     utils.sanity_check(sentence_1, block_size)
-    
+    #Sanity checking before training
+    print("Sanity check before training")
+    print("=============================================================")
+    with torch.no_grad():  # Disable gradient tracking
+        batch_iter = iter(train_CLS_loader)
+        X, _ = next(batch_iter)
+        sentence_1 = "It's time to put an end to micromanagement of foreign and security assistance programs—micromanagement that humiliates our friends and allies and hamstrings our diplomacy."
+        utils = Utilities(tokenizer, encoder)
+        utils.sanity_check(sentence_1, block_size)
+    train_accuracies = []
+    test_accuracies = []
     # Training 
     for epoch in range(epochs_CLS):
         total_loss = 0.0
@@ -167,34 +167,35 @@ def main():
         train_acc = compute_classifier_accuracy(encoder, classifier, train_CLS_loader)
         print(f"Epoch [{epoch+1}/{epochs_CLS}], Loss: {total_loss/len(train_CLS_loader):.4f}, Training Accuracy: {train_acc:.2f}%")
 
+
         # Test accuracy 
         test_acc = compute_classifier_accuracy(encoder, classifier, test_CLS_loader)
         print(f"Epoch [{epoch+1}/{epochs_CLS}], Test Accuracy: {test_acc:.2f}%")
-
+                 # Plot the training and testing accuracy after training
     
-    # # Sanity checking after encoder training
-    # print("========================================================")
-    # print("Sanity check after encoder training")
-    # with torch.no_grad():  # Disable gradient tracking
-    #     batch_iter = iter(train_LM_loader)
-    #     X, _ = next(batch_iter)
-    #     sentence_1 = "It's time to put an end to micromanagement of foreign and security assistance programs—micromanagement that humiliates our friends and allies and hamstrings our diplomacy."
-    #     utils = Utilities(tokenizer, encoder)
-    #     utils.sanity_check(sentence_1, block_size)
+    # Sanity checking after encoder training
+    print("========================================================")
+    print("Sanity check after encoder training")
+    with torch.no_grad():  # Disable gradient tracking
+        batch_iter = iter(train_LM_loader)
+        X, _ = next(batch_iter)
+        sentence_1 = "It's time to put an end to micromanagement of foreign and security assistance programs—micromanagement that humiliates our friends and allies and hamstrings our diplomacy."
+        utils = Utilities(tokenizer, encoder)
+        utils.sanity_check(sentence_1, block_size)
     
     # Define the decoder model, loss function, and optimizer
     decoder = TransformerDecoder(vocab_size, n_embd, n_head, n_layer, block_size).to(device)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
 
-    # #Sanity checking for decoder
-    # print("========================================================")
-    # print("Sanity check after decoder training")
-    # batch_iter = iter(train_LM_loader)
-    # X, _ = next(batch_iter)
-    # sentence_2 = tokenizer.decode(X[0].tolist())
-    # utils = Utilities(tokenizer, decoder)
-    # utils.sanity_check(sentence_2, block_size)
+    #Sanity checking for decoder
+    print("========================================================")
+    print("Sanity check after decoder training")
+    batch_iter = iter(train_LM_loader)
+    X, _ = next(batch_iter)
+    sentence_2 = tokenizer.decode(X[0].tolist())
+    utils = Utilities(tokenizer, decoder)
+    utils.sanity_check(sentence_2, block_size)
 
     num_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Number of parameters in the decoder: {num_params}")
